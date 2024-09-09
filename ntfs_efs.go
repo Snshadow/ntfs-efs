@@ -147,7 +147,7 @@ func (rw *RawReadWriter) ReadRaw(srcFile string, dst io.ReadWriter) error {
 	}
 	defer w32api.CloseEncryptedFileRaw(rawCtx)
 
-	err = w32api.ReadEncryptedFileRaw(rw.readcb, unsafe.Pointer(rw.ctx), rawCtx)
+	err = w32api.ReadEncryptedFileRaw(rw.readcb, unsafe.Pointer(rw.ReadCtx), rawCtx)
 	if err != nil {
 		return errors.Join(err, rw.ctx.err)
 	}
@@ -169,7 +169,7 @@ func (rw *RawReadWriter) WriteRaw(dstFile string, src io.ReadWriter, dir bool) e
 	}
 	defer w32api.CloseEncryptedFileRaw(rawCtx)
 
-	err = w32api.WriteEncryptedFileRaw(rw.writeCb, unsafe.Pointer(rw.ctx), rawCtx)
+	err = w32api.WriteEncryptedFileRaw(rw.writeCb, unsafe.Pointer(rw.WriteCtx), rawCtx)
 	if err != nil {
 		return errors.Join(err, rw.ctx.err)
 	}
