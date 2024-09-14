@@ -13,16 +13,18 @@ import (
 
 type ExportContext struct {
 	Context any
-	// If the function succeeds, it must set the return value to ERROR_SUCCESS, and set the value pointed to by the length parameter to the number of bytes copied into data.
-	//
-	// When the end of the backup file is reached, set ulLength to zero to tell the system that the entire file has been processed.
-	Handler func(data *byte, ctx *ExportContext, length *uint32) uintptr
+
+	// If the function succeeds, it must set the return value to ERROR_SUCCESS.
+	Handler func(data *byte, ctx *ExportContext, length uint32) uintptr
 }
 
 type ImportContext struct {
 	Context any
-	// If the function succeeds, it must set the return value to ERROR_SUCCESS.
-	Handler func(data *byte, ctx *ImportContext, length uint32) uintptr // user defined callback
+
+	// If the function succeeds, it must set the return value to ERROR_SUCCESS, and set the value pointed to by the length parameter to the number of bytes copied into data.
+	//
+	// When the end of the backup file is reached, set ulLength to zero to tell the system that the entire file has been processed.
+	Handler func(data *byte, ctx *ImportContext, length *uint32) uintptr // user defined callback
 }
 
 // newCallback creates callback function pointer to be used by ReadEncryptedFileRaw or WriteEncryptedFileRaw.
@@ -30,14 +32,14 @@ type ImportContext struct {
 func newCallback[userCtx *ExportContext | *ImportContext](ctx userCtx) uintptr {
 	switch any(ctx).(type) {
 	case *ExportContext:
-		cb := func(data *byte, callbackContext unsafe.Pointer, length *uint32) uintptr {
+		cb := func(data *byte, callbackContext unsafe.Pointer, length uint32) uintptr {
 			c := (*ExportContext)(callbackContext)
 
 			return c.Handler(data, c, length)
 		}
 		return windows.NewCallback(cb)
 	case *ImportContext:
-		cb := func(data *byte, callbackContext unsafe.Pointer, length uint32) uintptr {
+		cb := func(data *byte, callbackContext unsafe.Pointer, length *uint32) uintptr {
 			c := (*ImportContext)(callbackContext)
 
 			return c.Handler(data, c, length)
@@ -50,7 +52,6 @@ func newCallback[userCtx *ExportContext | *ImportContext](ctx userCtx) uintptr {
 }
 
 type EfsClient struct {
-	data            []byte
 	readcb, writeCb uintptr
 
 	ReadCtx  *ExportContext
@@ -76,7 +77,7 @@ type rawReadWriteCtx struct {
 	err    error
 }
 
-// RawReadWriter converts encrypted file in to a raw data keeping its encrypted format.
+// RawReadWriter converts encrypted file into a raw data keeping its encrypted format.
 type RawReadWriter struct {
 	*EfsClient
 
@@ -97,23 +98,7 @@ func NewRawReadWriter() (*RawReadWriter, error) {
 	rw.ReadCtx.Context = rw.ctx
 	rw.WriteCtx.Context = rw.ctx
 
-	rw.ReadCtx.Handler = func(data *byte, ctx *ExportContext, length *uint32) uintptr {
-		c := ctx.Context.(*rawReadWriteCtx)
-
-		buf := unsafe.Slice(data, *length)
-		n, err := c.target.Read(buf)
-		if err != io.EOF {
-			*length = 0
-		} else if err != nil {
-			c.err = err
-			return uintptr(windows.ERROR_READ_FAULT)
-		} else {
-			*length = uint32(n)
-		}
-
-		return uintptr(windows.ERROR_SUCCESS)
-	}
-	rw.WriteCtx.Handler = func(data *byte, ctx *ImportContext, length uint32) uintptr {
+	rw.ReadCtx.Handler = func(data *byte, ctx *ExportContext, length uint32) uintptr {
 		c := ctx.Context.(*rawReadWriteCtx)
 
 		buf := unsafe.Slice(data, length)
@@ -121,6 +106,22 @@ func NewRawReadWriter() (*RawReadWriter, error) {
 		if err != nil {
 			c.err = err
 			return uintptr(windows.ERROR_WRITE_FAULT)
+		}
+
+		return uintptr(windows.ERROR_SUCCESS)
+	}
+	rw.WriteCtx.Handler = func(data *byte, ctx *ImportContext, length *uint32) uintptr {
+		c := ctx.Context.(*rawReadWriteCtx)
+
+		buf := unsafe.Slice(data, *length)
+		n, err := c.target.Read(buf)
+		if err == io.EOF {
+			*length = 0
+		} else if err != nil {
+			c.err = err
+			return uintptr(windows.ERROR_READ_FAULT)
+		} else {
+			*length = uint32(n)
 		}
 
 		return uintptr(windows.ERROR_SUCCESS)
@@ -140,6 +141,8 @@ func (rw *RawReadWriter) ReadRaw(srcFile string, dst io.ReadWriter) error {
 	if stat.IsDir() {
 		openFlag |= w32api.CREATE_FOR_DIR
 	}
+
+	rw.ctx.target = dst
 
 	rawCtx, err := w32api.OpenEncryptedFileRaw(srcFile, openFlag)
 	if err != nil {
@@ -162,6 +165,8 @@ func (rw *RawReadWriter) WriteRaw(dstFile string, src io.ReadWriter, dir bool) e
 	if dir {
 		openFlag |= w32api.CREATE_FOR_DIR
 	}
+
+	rw.ctx.target = src
 
 	rawCtx, err := w32api.OpenEncryptedFileRaw(dstFile, openFlag)
 	if err != nil {
