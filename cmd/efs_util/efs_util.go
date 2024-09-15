@@ -16,7 +16,7 @@ func main() {
 	toEncrypted := flag.Bool("to-encrypted", false, "read from stream of raw data then write encrypted file or directory")
 	src := flag.String("src", "", "source file of data to read")
 	target := flag.String("target", "", "target file to write data to")
-	efsDir := flag.Bool("efs-dir", false, "process encrypted directory(and its files)")
+	efsDir := flag.Bool("efs-dir", false, "process directory marked for encryption")
 	useStdin := flag.Bool("stdin", false, "use stardard input as source")
 	useStdout := flag.Bool("stdout", false, "write to standard output")
 
@@ -35,13 +35,19 @@ func main() {
 
 	flag.Parse()
 
-	if !*toEncrypted && !*writeRaw {
-		flag.Usage()
-		os.Exit(1)
-	}
-
 	if *toEncrypted || *writeRaw {
-		if *src == "" && (!*useStdin && *target == "") || *target == "" && (!*useStdout && *src == "") {
+		if *src == "" || *target == "" {
+			if *useStdout {
+				*src = flag.Arg(0)
+			} else if *useStdin {
+				*target = flag.Arg(0)
+			} else {
+				*src = flag.Arg(0)
+				*target = flag.Arg(1)
+			}
+		}
+
+		if (*src == "" && !*useStdin) || (*target == "" && !*useStdout) {
 			flag.Usage()
 			os.Exit(1)
 		}
@@ -61,7 +67,7 @@ func main() {
 				strm, err = os.OpenFile(*target, os.O_RDWR|os.O_CREATE, 0777)
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "Failed to open target file for write: %v\n", err)
-					os.Exit(1)
+					os.Exit(2)
 				}
 				defer strm.(*os.File).Close()
 			}
@@ -69,7 +75,7 @@ func main() {
 			err = rw.ReadRaw(*src, strm)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Failed to write raw data from encrypted file: %v\n", err)
-				os.Exit(1)
+				os.Exit(2)
 			}
 
 			if !*useStdout {
@@ -82,7 +88,7 @@ func main() {
 				strm, err = os.Open(*src)
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "Failed to open encrypted file for reading: %v\n", err)
-					os.Exit(1)
+					os.Exit(2)
 				}
 				defer strm.(*os.File).Close()
 			}
@@ -90,7 +96,7 @@ func main() {
 			err = rw.WriteRaw(*target, strm, *efsDir)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Failed to create encrypted file from raw data: %v\n", err)
-				os.Exit(1)
+				os.Exit(2)
 			}
 
 			if *useStdin {
