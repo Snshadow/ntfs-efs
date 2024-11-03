@@ -77,7 +77,7 @@ type rawReadWriteCtx struct {
 	err    error
 }
 
-// RawReadWriter converts encrypted file into a raw data keeping its encrypted format.
+// RawReadWriter converts encrypted file or directory into a raw data keeping its encryption.
 type RawReadWriter struct {
 	*EfsClient
 
